@@ -7,11 +7,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # Load the trained CNN
-MODEL_PATH = PROJECT_ROOT / "models" / "drowsiness_cnn_model.keras"
+MODEL_PATH = PROJECT_ROOT / "models" / "drowsiness_cnn_experiment_2.keras"
 
 # [ADDED BY ASSISTANT] Fallback path check if loaded from different working directories
 if not MODEL_PATH.exists():
-    fallback_path = Path.cwd() / "models" / "drowsiness_cnn_model.keras"
+    fallback_path = Path.cwd() / "models" / "drowsiness_cnn_experiment_2.keras"
     if fallback_path.exists():
         MODEL_PATH = fallback_path
 

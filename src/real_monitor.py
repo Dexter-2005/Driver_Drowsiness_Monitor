@@ -31,7 +31,7 @@ class RealMonitor:
     """Connect browser webcam frames to upstream CV/model components."""
 
     def __init__(self) -> None:
-        if not (UPSTREAM / "models" / "drowsiness_cnn_model.keras").is_file():
+        if not (UPSTREAM / "models" / "drowsiness_cnn_experiment_2.keras").is_file():
             raise FileNotFoundError("The upstream CNN model file is missing.")
         vision = UPSTREAM / "src" / "opencv"
         model = _load_module("upstream_eye_predict", UPSTREAM / "src" / "model" / "predict.py")
@@ -137,3 +137,4 @@ class RealMonitor:
         self.last_frame = None
         self.fps = 0.0
         self._last_processed_at = None
+
