@@ -222,11 +222,7 @@ def render_dashboard():
                 mode=WebRtcMode.SENDRECV,
                 video_processor_factory=lambda: DashboardVideoProcessor(monitor),
                 media_stream_constraints={
-                    "video": {
-                        "width": {"ideal": 640},
-                        "height": {"ideal": 480},
-                        "frameRate": {"ideal": 10, "max": 15},
-                    },
+                    "video": True,
                     "audio": False,
                 },
                 rtc_configuration={"iceServers": []},

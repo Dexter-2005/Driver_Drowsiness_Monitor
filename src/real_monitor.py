@@ -9,6 +9,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+import tensorflow as tf
 
 from src.drowsiness_logic import DrowsinessDetector
 from src.audible_alarm import AudibleAlarm
@@ -38,6 +39,10 @@ class RealMonitor:
         face_module = _load_module("upstream_face_detector", vision / "src" / "face_detector.py")
         eye_module = _load_module("upstream_eye_detector", vision / "src" / "eye_detector.py")
         self.model = model.model
+        self._predict_fn = tf.function(self.model)
+        # Warmup compiled function on dummy tensor to eliminate first-frame latency
+        _warmup_dummy = tf.zeros((2, 80, 80, 1), dtype=tf.float32)
+        _ = self._predict_fn(_warmup_dummy)
         self.face_detector = face_module.FaceDetector()
         self.eye_detector = eye_module.EyeDetector()
         self.detector = DrowsinessDetector()
@@ -91,11 +96,11 @@ class RealMonitor:
     def _detect_face(self, frame: Any) -> tuple[int, int, int, int] | None:
         """Use upstream detection first, then retry misses with a softer pass."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        scale = min(1.0, 800.0 / gray.shape[1])
+        scale = min(1.0, 480.0 / gray.shape[1])
         if scale < 1.0:
-            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
-        min_side = max(40, round(100 * scale))
+        min_side = max(30, round(70 * scale))
         found = self.face_detector.face_cascade.detectMultiScale(
             gray, scaleFactor=1.3, minNeighbors=5, minSize=(min_side, min_side)
         )
@@ -108,9 +113,9 @@ class RealMonitor:
         # Equalize and lower the acceptance threshold only on frames where the
         # original upstream detector found nothing. This helps dim/angled faces.
         gray = cv2.equalizeHist(gray)
-        min_side = max(32, round(80 * scale))
+        min_side = max(25, round(60 * scale))
         found = self.face_detector.face_cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=4, minSize=(min_side, min_side)
+            gray, scaleFactor=1.2, minNeighbors=4, minSize=(min_side, min_side)
         )
         if len(found) == 0:
             return None
@@ -120,7 +125,7 @@ class RealMonitor:
         return int(x), int(y), int(w), int(h)
 
     def _predict_eyes(self, crops: list[Any]) -> list[str]:
-        """Classify both eye crops in one CNN call to reduce per-frame overhead."""
+        """Classify both eye crops in one compiled graph call to eliminate per-frame overhead."""
         batch = []
         for crop in crops:
             if crop is None or not isinstance(crop, np.ndarray) or crop.size == 0:
@@ -128,7 +133,8 @@ class RealMonitor:
             gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
             gray = cv2.resize(gray, (80, 80)).astype(np.float32) / 255.0
             batch.append(gray)
-        probabilities = np.asarray(self.model.predict(np.stack(batch)[..., np.newaxis], verbose=0)).reshape(-1)
+        tensor = tf.convert_to_tensor(np.stack(batch)[..., np.newaxis], dtype=tf.float32)
+        probabilities = self._predict_fn(tensor).numpy().reshape(-1)
         return ["OPEN" if float(p) >= 0.5 else "CLOSED" for p in probabilities]
 
     def close(self) -> None:
