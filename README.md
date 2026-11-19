@@ -20,7 +20,7 @@ The dashboard can be opened at the local URL printed in the terminal. Allow webc
 
 Choose **REAL MODE**, then select **Start Monitoring**. Start the camera in the live video panel and allow browser camera access. The browser streams frames to the app, which detects a face and eyes using the upstream Haar cascades, classifies both eye crops with the included Keras CNN, and applies this project's continuous-closure timer. The live camera view and eye states update in the dashboard. Choose **Stop Monitoring** or switch modes to end the stream.
 
-The upstream repository snapshot is preserved in `upstream_driver/`, including its source, CNN model, OpenCV cascade assets, notebooks, and progress report. The dashboard adapter in `src/real_monitor.py` connects these modules with the existing `src/drowsiness_logic.py`; upstream monitor behavior and the other dashboard/demo components remain present. In REAL MODE on Windows, a repeating two-tone beep runs on a background thread while status is DROWSY and stops when the driver returns to NORMAL, the face/eyes become unavailable, or monitoring stops. Install requirements from this project's `requirements.txt` (Streamlit, OpenCV, TensorFlow, and Streamlit WebRTC) to run real mode.
+The upstream repository snapshot is preserved in `upstream_driver/`, including its source, CNN model, OpenCV cascade assets, notebooks, and progress report. The dashboard adapter in `src/real_monitor.py` connects these modules with the existing `src/drowsiness_logic.py`; upstream monitor behavior and the other dashboard/demo components remain present. In REAL MODE on Windows, a repeating two-tone beep starts when status first becomes DROWSY and stays on until acknowledged, even if the eyes reopen. Press Spacebar or choose **Silence Alarm**; after acknowledgment, the alarm re-arms when the driver recovers and drowsiness is detected again. Install requirements from this project's `requirements.txt` (Streamlit, OpenCV, TensorFlow, and Streamlit WebRTC) to run real mode.
 
 ## Demo mode
 
@@ -39,7 +39,7 @@ Demo controls only update synthetic state. Real mode disables demo scenarios and
 
 ## Drowsiness Detection Logic
 
-The rule lives in `src/drowsiness_logic.py`, separate from Streamlit UI code. A single frame with both eyes closed is not enough to mark the driver drowsy because it could be part of a normal blink. The detector starts a timer when both eyes are CLOSED and compares continuous elapsed time with `CLOSURE_THRESHOLD_SECONDS` (currently 2.0 seconds). The threshold is configurable when creating `DrowsinessDetector`.
+The rule lives in `src/drowsiness_logic.py`, separate from Streamlit UI code. A single frame with both eyes closed is not enough to mark the driver drowsy because it could be part of a normal blink. The detector starts a timer when both eyes are CLOSED and compares continuous elapsed time with `CLOSURE_THRESHOLD_SECONDS` (currently 1.5 seconds). The threshold is configurable when creating `DrowsinessDetector`.
 
 If either eye opens, the timer resets and the state returns to NORMAL. If no face or an eye cannot be observed, the detector reports NO_FACE or EYE_NOT_DETECTED and clears the closure timer; missing data is never treated as drowsiness. The time-based calculation uses a monotonic clock and does not assume a fixed camera frame rate.
 
@@ -63,4 +63,4 @@ python -m unittest discover -s tests -v
 - **ML model:** classify each eye crop as OPEN or CLOSED and inject the classifier into `DrowsinessPipeline`; confirm the actual API and error return format first.
 - **Dashboard:** connect the confirmed real pipeline result to the existing cards; keep demo input isolated to DEMO MODE.
 
-The integrated dashboard shows a visual alert status; it does not activate the upstream Windows-only beep or external hardware. The two-second threshold is a configurable prototype parameter, not a medically validated value. Upstream implementation: [driver-drowsiness-detection](https://github.com/Anand-Patidar03/driver-drowsiness-detection).
+The integrated dashboard shows a visual alert status; it does not activate the upstream Windows-only beep or external hardware. The 1.5-second threshold is a configurable prototype parameter, not a medically validated value. Upstream implementation: [driver-drowsiness-detection](https://github.com/Anand-Patidar03/driver-drowsiness-detection).

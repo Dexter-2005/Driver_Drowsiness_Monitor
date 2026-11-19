@@ -6,7 +6,7 @@ from typing import Callable
 
 
 # Configure the default threshold here; the dashboard reads this same value.
-CLOSURE_THRESHOLD_SECONDS = 2.0
+CLOSURE_THRESHOLD_SECONDS = 1.5
 
 
 class DrowsinessDetector:

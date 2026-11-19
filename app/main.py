@@ -9,6 +9,34 @@ import streamlit as st
 import av
 from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 
+
+_ALARM_HOTKEY_HTML = "<div aria-hidden='true'></div>"
+_ALARM_HOTKEY_JS = r"""
+let alarmHotkeyState = window.__driverDrowsinessAlarmHotkey;
+if (!alarmHotkeyState) {
+    alarmHotkeyState = { active: false, trigger: null };
+    window.__driverDrowsinessAlarmHotkey = alarmHotkeyState;
+    window.addEventListener("keydown", (event) => {
+        if (!alarmHotkeyState.active || (event.code !== "Space" && event.key !== " ")) return;
+        const target = event.target;
+        if (target instanceof HTMLElement &&
+            (target.isContentEditable || target.closest("input, textarea, select"))) return;
+        event.preventDefault();
+        alarmHotkeyState.trigger?.("space_pressed", true);
+    });
+}
+
+export default function(component) {
+    alarmHotkeyState.active = Boolean(component.data?.active);
+    alarmHotkeyState.trigger = component.setTriggerValue;
+}
+"""
+_alarm_hotkey = st.components.v2.component(
+    "driver_drowsiness_alarm_hotkey",
+    html=_ALARM_HOTKEY_HTML,
+    js=_ALARM_HOTKEY_JS,
+)
+
 # Add the project folder to Python's import path so `src.dashboard_state`
 # can be imported when Streamlit is started with `streamlit run app/main.py`.
 ROOT = Path(__file__).resolve().parents[1]
@@ -158,8 +186,9 @@ def get_current_dashboard_state():
             right_eye_status=monitor.right_eye,
             driver_status=display_status,
             alarm_status=(
-                "AUDIO ALERT" if monitor.alarm.supported else "VISUAL ALERT"
-            ) if status == DrowsinessDetector.DROWSY else "OFF",
+                "ALARM SILENCED" if monitor.alarm_acknowledged else
+                ("AUDIO ALERT" if monitor.alarm.supported else "VISUAL ALERT")
+            ) if monitor.alarm_latched else "OFF",
             eye_closure_duration=monitor.closure_duration,
             camera_status="Waiting for browser camera" if monitor.last_frame is None else "Connected",
             opencv_status="Connected",
@@ -211,6 +240,26 @@ def render_dashboard():
     # The recurring fragment lets a sustained mock closure cross its threshold
     # without requesting an external auto-refresh dependency.
     state = get_current_dashboard_state()
+    monitor = st.session_state.real_monitor
+    alarm_active = (
+        st.session_state.mode == "REAL MODE"
+        and monitor is not None
+        and monitor.alarm_latched
+        and not monitor.alarm_acknowledged
+    )
+
+    def acknowledge_alarm_from_hotkey() -> None:
+        monitor = st.session_state.real_monitor
+        if monitor is not None:
+            monitor.acknowledge_alarm()
+
+    _alarm_hotkey(
+        data={"active": alarm_active},
+        on_space_pressed_change=acknowledge_alarm_from_hotkey,
+        key="driver-drowsiness-alarm-hotkey",
+        width=1,
+        height=1,
+    )
 
     # Main row: retain the camera placeholder and existing driver overview.
     left, right = st.columns([1.75, 1], gap="large")
@@ -261,7 +310,6 @@ def render_dashboard():
         with a:
             st.markdown(f'<div class="panel"><div class="panel-title">Driver Status</div><div class="status-value {driver_class}" style="font-size:1.2rem">{state.driver_status}</div></div>', unsafe_allow_html=True)
         with b:
-            # Existing alarm display is preserved; this task does not activate an alarm.
             st.markdown(f'<div class="panel"><div class="panel-title">Alarm Status</div><div class="status-value {alarm_class}">{state.alarm_status}</div></div>', unsafe_allow_html=True)
 
     # Secondary row: duration/threshold, readiness, and existing controls.
@@ -279,7 +327,20 @@ def render_dashboard():
             if st.session_state.mode == "REAL MODE":
                 if st.session_state.real_error:
                     st.warning(st.session_state.real_error)
-                st.caption("Real mode streams webcam frames to the OpenCV/CNN pipeline and plays a repeating alert while DROWSY is detected.")
+                monitor = st.session_state.real_monitor
+                if monitor is not None and monitor.alarm_latched:
+                    if monitor.alarm_acknowledged:
+                        st.caption("Alarm silenced. It will re-arm after the driver returns to NORMAL.")
+                    else:
+                        st.caption("Alarm stays on until acknowledged. Press Spacebar or use the button below to silence it.")
+                elif state.driver_status == DrowsinessDetector.DROWSY:
+                    st.caption("Alarm active. Press Spacebar or use the button below to silence it.")
+                else:
+                    st.caption("Real mode streams browser camera frames to the OpenCV/CNN pipeline and sounds an alert when DROWSY is detected.")
+                if monitor is not None and monitor.alarm_latched and not monitor.alarm_acknowledged:
+                    if st.button("Silence Alarm (Spacebar)", use_container_width=True):
+                        monitor.acknowledge_alarm()
+                        st.rerun()
             else:
                 st.caption("Controls update demo state only. No camera or alarm is started.")
             c1, c2 = st.columns(2)

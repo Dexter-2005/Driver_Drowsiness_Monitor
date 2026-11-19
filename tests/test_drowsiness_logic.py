@@ -92,7 +92,7 @@ class DrowsinessDetectorTests(unittest.TestCase):
         self.assertEqual(detector.update("CLOSED", "CLOSED", now=0.0), "NORMAL")
         self.assertEqual(detector.update("CLOSED", "CLOSED", now=0.49), "NORMAL")
         self.assertEqual(detector.update("CLOSED", "CLOSED", now=0.5), "DROWSY")
-        self.assertEqual(CLOSURE_THRESHOLD_SECONDS, 2.0)
+        self.assertEqual(CLOSURE_THRESHOLD_SECONDS, 1.5)
 
     def test_blink_demo_input_opens_after_short_interval(self):
         self.assertEqual(demo_eye_inputs("Blink", 0.0), ("CLOSED", "CLOSED", True))

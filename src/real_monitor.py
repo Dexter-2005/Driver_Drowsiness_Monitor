@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import threading
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -47,6 +48,9 @@ class RealMonitor:
         self.eye_detector = eye_module.EyeDetector()
         self.detector = DrowsinessDetector()
         self.alarm = AudibleAlarm()
+        self.alarm_latched = False
+        self.alarm_acknowledged = False
+        self._alarm_lock = threading.Lock()
         self.last_frame: Any = None
         self.left_eye = self.right_eye = "NOT DETECTED"
         self.driver_status = "EYE NOT DETECTED"
@@ -81,7 +85,16 @@ class RealMonitor:
             self.last_error = f"Frame processing failed ({type(exc).__name__}): {exc}"
             self.left_eye = self.right_eye = "NOT DETECTED"
             self.driver_status = self.detector.update(None, None)
-        self.alarm.set_active(self.driver_status == DrowsinessDetector.DROWSY)
+        with self._alarm_lock:
+            is_drowsy = self.driver_status == DrowsinessDetector.DROWSY
+            if is_drowsy:
+                self.alarm_latched = True
+            elif self.alarm_acknowledged and self.driver_status == DrowsinessDetector.NORMAL:
+                # Re-arm only after the driver recovers and the current alarm
+                # has already been acknowledged.
+                self.alarm_latched = False
+                self.alarm_acknowledged = False
+            self.alarm.set_active(self.alarm_latched and not self.alarm_acknowledged)
         self.closure_duration = self.detector.get_closure_duration()
         self.last_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         finished_at = monotonic()
@@ -92,6 +105,12 @@ class RealMonitor:
                 self.fps = measured_fps if self.fps == 0 else 0.75 * self.fps + 0.25 * measured_fps
         self._last_processed_at = finished_at
         return frame
+
+    def acknowledge_alarm(self) -> None:
+        """Silence the latched alarm until recovery re-arms it."""
+        with self._alarm_lock:
+            self.alarm_acknowledged = True
+            self.alarm.set_active(False)
 
     def _detect_face(self, frame: Any) -> tuple[int, int, int, int] | None:
         """Use upstream detection first, then retry misses with a softer pass."""
@@ -138,7 +157,10 @@ class RealMonitor:
         return ["OPEN" if float(p) >= 0.5 else "CLOSED" for p in probabilities]
 
     def close(self) -> None:
-        self.alarm.close()
+        with self._alarm_lock:
+            self.alarm_latched = False
+            self.alarm_acknowledged = False
+            self.alarm.close()
         self.detector.reset()
         self.last_frame = None
         self.fps = 0.0

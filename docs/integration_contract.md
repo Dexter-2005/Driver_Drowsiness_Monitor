@@ -26,6 +26,6 @@ Webcam frame
 - **DEMO MODE** uses synthetic values and never opens the camera.
 - **REAL MODE** disables demo scenarios. Start Monitoring loads the model and presents a browser webcam stream. After camera access is allowed and the stream starts, frames and predictions update live. Stop Monitoring and mode changes end processing.
 - Camera, dependency, and frame-processing errors are displayed in the dashboard. Real mode never replaces unavailable input with demo values.
-- A repeating Windows system beep runs off the video-processing thread while the real-mode state is DROWSY. It stops when the condition clears, observations become unavailable, or monitoring stops. Other platforms retain the visual alert.
+- A repeating Windows system beep runs off the video-processing thread after the real-mode state first becomes DROWSY. It remains active until Spacebar or **Silence Alarm** acknowledges it, even if the eyes reopen. After acknowledgment, the alarm re-arms when the driver recovers and drowsiness is detected again. Other platforms retain the visual alert and can also acknowledge it.
 
-The upstream implementation and model are a prototype. The two-second closure threshold is configurable and is not medically validated.
+The upstream implementation and model are a prototype. The 1.5-second closure threshold is configurable and is not medically validated.
