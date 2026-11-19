@@ -14,3 +14,4 @@ env/
 # Generated local output
 report_render/
 *.log
+.previous-repository/

@@ -1,66 +1,66 @@
 # Driver Drowsiness Detection System
 
-A Streamlit dashboard integrating the project's time-based drowsiness logic with the upstream webcam, OpenCV face/eye detectors, and trained CNN classifier. Demo mode remains available for UI previews.
+Streamlit dashboard with browser webcam streaming, OpenCV face/eye localization,
+the included Keras CNN, and a continuous eye-closure timer.
 
-## Install and run
+## Run locally
 
-Use Python 3.10–3.12. From the project root, create and activate a virtual environment, install the dependencies, then start the dashboard:
+Use Python 3.13 with the pinned dependencies:
 
-```bash
+```powershell
 python -m venv .venv
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-streamlit run app/main.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run app/main.py
 ```
 
-The dashboard can be opened at the local URL printed in the terminal. Allow webcam access when prompted. The first real-mode start loads the CNN model and may take a little longer.
+Open the local URL printed in the terminal. Choose REAL MODE, click Enable sound,
+Start Monitoring, and START in the video panel. Allow browser camera access.
+The sound button also provides a test tone. Spacebar or Silence Alarm acknowledges
+an alarm. Recovery re-arms the alarm for a subsequent drowsiness event.
 
-## Real webcam mode
+## Deploy
 
-Choose **REAL MODE**, then select **Start Monitoring**. Start the camera in the live video panel and allow browser camera access. The browser streams frames to the app, which detects a face and eyes using the upstream Haar cascades, classifies both eye crops with the included Keras CNN, and applies this project's continuous-closure timer. The live camera view and eye states update in the dashboard. Choose **Stop Monitoring** or switch modes to end the stream.
+Read [DEPLOYMENT.md](DEPLOYMENT.md) for account setup, TURN secrets,
+Streamlit Cloud settings and real-camera acceptance checks. The entrypoint is
+`app/main.py`. Remote camera access requires HTTPS and working ICE connectivity;
+STUN alone is not sufficient on all networks. The secrets template is
+`.streamlit/secrets.toml.example`; never commit your actual `secrets.toml`.
 
-The upstream repository snapshot is preserved in `upstream_driver/`, including its source, CNN model, OpenCV cascade assets, notebooks, and progress report. The dashboard adapter in `src/real_monitor.py` connects these modules with the existing `src/drowsiness_logic.py`; upstream monitor behavior and the other dashboard/demo components remain present. In REAL MODE on Windows, a repeating two-tone beep starts when status first becomes DROWSY and stays on until acknowledged, even if the eyes reopen. Press Spacebar or choose **Silence Alarm**; after acknowledgment, the alarm re-arms when the driver recovers and drowsiness is detected again. Install requirements from this project's `requirements.txt` (Streamlit, OpenCV, TensorFlow, and Streamlit WebRTC) to run real mode.
+## Detection behavior
 
-## Demo mode
+Both eyes must be classified CLOSED continuously for 1.5 seconds before DROWSY.
+A brief blink does not trigger an alarm. Opening either eye, missing detections,
+inference failure or a frame-processing gap above one second resets the timer.
+Missing eye data is reported as unavailable, never fabricated as CLOSED.
 
-Choose **DEMO MODE** in the header, then choose a scenario in the **Demo scenario** selector:
+DEMO MODE uses synthetic scenarios: Normal, Blink, Long Eye Closure, One Eye
+Closed, No Face and Eye Not Detected. Demo mode does not activate the webcam or
+automatic alarm. Test sound is available independently.
 
-- **Normal:** both eyes stay open; status remains NORMAL.
-- **Blink:** both eyes close briefly, then reopen before the threshold; status remains NORMAL.
-- **Long Eye Closure:** both eyes remain closed; status becomes DROWSY after the configured threshold.
-- **One Eye Closed:** only one eye is closed; this does not start the both-eyes closure timer.
-- **No Face:** status becomes NO FACE DETECTED.
-- **Eye Not Detected:** status becomes EYE NOT DETECTED.
-
-Start Monitoring, Stop Monitoring, and Reset Demo update dashboard demo state only. The alarm display is retained from the existing dashboard; no alarm is activated or implemented.
-
-Demo controls only update synthetic state. Real mode disables demo scenarios and never substitutes mock predictions.
-
-## Drowsiness Detection Logic
-
-The rule lives in `src/drowsiness_logic.py`, separate from Streamlit UI code. A single frame with both eyes closed is not enough to mark the driver drowsy because it could be part of a normal blink. The detector starts a timer when both eyes are CLOSED and compares continuous elapsed time with `CLOSURE_THRESHOLD_SECONDS` (currently 1.5 seconds). The threshold is configurable when creating `DrowsinessDetector`.
-
-If either eye opens, the timer resets and the state returns to NORMAL. If no face or an eye cannot be observed, the detector reports NO_FACE or EYE_NOT_DETECTED and clears the closure timer; missing data is never treated as drowsiness. The time-based calculation uses a monotonic clock and does not assume a fixed camera frame rate.
-
-The dashboard uses mock input values from `demo_eye_inputs()` in `src/dashboard_state.py`. The detector's output supplies the Driver Status card. The dashboard fragment refreshes twice per second so the long-closure scenario can cross the threshold while the page is open.
-
-## Integration adapter
-
-`src/integration.py` remains as the dependency-injected, webcam-free adapter contract. `src/real_monitor.py` is the runtime bridge used by the dashboard. It lazily loads the preserved upstream face detector, eye detector, and `predict_eye_with_confidence`, then feeds the predictions into the project's time-based `DrowsinessDetector`.
+The real pipeline crops grayscale 80x80 eye images and runs batched CNN inference.
+The active model is `upstream_driver/models/drowsiness_cnn_experiment_2.keras`.
+The model is shared across sessions; closure timers and alarms are independent.
+Video is processed on the server in memory; this dashboard does not save it.
 
 ## Tests
 
-Run the webcam-free unit and adapter tests with Python's standard library:
-
-```bash
-python -m unittest discover -s tests -v
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+node tests/browser_alarm_test.mjs
 ```
 
-## Future integration points
+Python checks include logic, adapter behavior, TURN handling, and actual model
+loading/inference without a webcam. JavaScript checks exercise alarm lifecycle
+with mocked browser APIs. Neither replaces real camera/audio/network testing.
 
-- **OpenCV:** provide face availability and left/right eye crops from the camera processing layer. Crop representation and color order still need team agreement.
-- **ML model:** classify each eye crop as OPEN or CLOSED and inject the classifier into `DrowsinessPipeline`; confirm the actual API and error return format first.
-- **Dashboard:** connect the confirmed real pipeline result to the existing cards; keep demo input isolated to DEMO MODE.
+## Limitations and attribution
 
-The integrated dashboard shows a visual alert status; it does not activate the upstream Windows-only beep or external hardware. The 1.5-second threshold is a configurable prototype parameter, not a medically validated value. Upstream implementation: [driver-drowsiness-detection](https://github.com/Anand-Patidar03/driver-drowsiness-detection).
+Haar eye localization can lose closed/occluded eyes. If sustained closure gives
+EYE NOT DETECTED, validate/improve eye localization before claiming reliable
+detection. Test while stationary. This student prototype is not a validated
+driving safety system. Keep the page foregrounded for timely updates.
+
+Original upstream source, models and project artifacts are preserved under
+`upstream_driver/` from
+[driver-drowsiness-detection](https://github.com/Anand-Patidar03/driver-drowsiness-detection).
+See [integration contract](docs/integration_contract.md) for component boundaries.

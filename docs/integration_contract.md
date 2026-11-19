@@ -26,6 +26,9 @@ Webcam frame
 - **DEMO MODE** uses synthetic values and never opens the camera.
 - **REAL MODE** disables demo scenarios. Start Monitoring loads the model and presents a browser webcam stream. After camera access is allowed and the stream starts, frames and predictions update live. Stop Monitoring and mode changes end processing.
 - Camera, dependency, and frame-processing errors are displayed in the dashboard. Real mode never replaces unavailable input with demo values.
-- A repeating Windows system beep runs off the video-processing thread after the real-mode state first becomes DROWSY. It remains active until Spacebar or **Silence Alarm** acknowledges it, even if the eyes reopen. After acknowledgment, the alarm re-arms when the driver recovers and drowsiness is detected again. Other platforms retain the visual alert and can also acknowledge it.
+- The browser plays the alarm after the visitor clicks **Enable sound**. Spacebar or **Silence Alarm** acknowledges it. After acknowledgment, recovery re-arms the alarm for a subsequent drowsiness event. The web dashboard never invokes the legacy Windows beep implementation.
+- Only the CNN and compiled inference function are shared between sessions, with serialized inference access. Detectors, timers and alarms remain session-specific. Model loading uses `compile=False`.
+- Processing gaps above one second reset the closure interval. Browser audio stops repeating if dashboard updates stop for three seconds.
+- `src/rtc_config.py` exchanges server-side Cloudflare secrets for expiring TURN credentials. See `DEPLOYMENT.md` for setup and acceptance checks.
 
 The upstream implementation and model are a prototype. The 1.5-second closure threshold is configurable and is not medically validated.

@@ -13,11 +13,22 @@ import numpy as np
 import tensorflow as tf
 
 from src.drowsiness_logic import DrowsinessDetector
-from src.audible_alarm import AudibleAlarm
+from functools import lru_cache
 
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = ROOT / "upstream_driver"
+_MODEL_LOCK = threading.Lock()
+
+
+@lru_cache(maxsize=1)
+def _load_inference():
+    model = tf.keras.models.load_model(
+        UPSTREAM / "models" / "drowsiness_cnn_experiment_2.keras", compile=False
+    )
+    predict = tf.function(lambda batch: model(batch, training=False))
+    predict(tf.zeros((2, 80, 80, 1), dtype=tf.float32))
+    return model, predict
 
 
 def _load_module(name: str, path: Path) -> Any:
@@ -36,18 +47,13 @@ class RealMonitor:
         if not (UPSTREAM / "models" / "drowsiness_cnn_experiment_2.keras").is_file():
             raise FileNotFoundError("The upstream CNN model file is missing.")
         vision = UPSTREAM / "src" / "opencv"
-        model = _load_module("upstream_eye_predict", UPSTREAM / "src" / "model" / "predict.py")
         face_module = _load_module("upstream_face_detector", vision / "src" / "face_detector.py")
         eye_module = _load_module("upstream_eye_detector", vision / "src" / "eye_detector.py")
-        self.model = model.model
-        self._predict_fn = tf.function(self.model)
-        # Warmup compiled function on dummy tensor to eliminate first-frame latency
-        _warmup_dummy = tf.zeros((2, 80, 80, 1), dtype=tf.float32)
-        _ = self._predict_fn(_warmup_dummy)
+        with _MODEL_LOCK:
+            self.model, self._predict_fn = _load_inference()
         self.face_detector = face_module.FaceDetector()
         self.eye_detector = eye_module.EyeDetector()
         self.detector = DrowsinessDetector()
-        self.alarm = AudibleAlarm()
         self.alarm_latched = False
         self.alarm_acknowledged = False
         self._alarm_lock = threading.Lock()
@@ -61,6 +67,9 @@ class RealMonitor:
 
     def process_frame(self, frame: Any) -> Any:
         """Annotate one BGR webcam frame and update dashboard-facing state."""
+        if self._last_processed_at is not None and monotonic() - self._last_processed_at > 1.0:
+            # A disconnected/stalled stream is not evidence of continuous closure.
+            self.detector.reset()
         try:
             face_box = self._detect_face(frame)
             if face_box is None:
@@ -94,7 +103,6 @@ class RealMonitor:
                 # has already been acknowledged.
                 self.alarm_latched = False
                 self.alarm_acknowledged = False
-            self.alarm.set_active(self.alarm_latched and not self.alarm_acknowledged)
         self.closure_duration = self.detector.get_closure_duration()
         self.last_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         finished_at = monotonic()
@@ -110,7 +118,6 @@ class RealMonitor:
         """Silence the latched alarm until recovery re-arms it."""
         with self._alarm_lock:
             self.alarm_acknowledged = True
-            self.alarm.set_active(False)
 
     def _detect_face(self, frame: Any) -> tuple[int, int, int, int] | None:
         """Use upstream detection first, then retry misses with a softer pass."""
@@ -153,14 +160,14 @@ class RealMonitor:
             gray = cv2.resize(gray, (80, 80)).astype(np.float32) / 255.0
             batch.append(gray)
         tensor = tf.convert_to_tensor(np.stack(batch)[..., np.newaxis], dtype=tf.float32)
-        probabilities = self._predict_fn(tensor).numpy().reshape(-1)
+        with _MODEL_LOCK:
+            probabilities = self._predict_fn(tensor).numpy().reshape(-1)
         return ["OPEN" if float(p) >= 0.5 else "CLOSED" for p in probabilities]
 
     def close(self) -> None:
         with self._alarm_lock:
             self.alarm_latched = False
             self.alarm_acknowledged = False
-            self.alarm.close()
         self.detector.reset()
         self.last_frame = None
         self.fps = 0.0

@@ -1,5 +1,7 @@
 """Streamlit dashboard foundation for Driver Drowsiness Detection System."""
 
+from __future__ import annotations
+
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -10,31 +12,10 @@ import av
 from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 
 
-_ALARM_HOTKEY_HTML = "<div aria-hidden='true'></div>"
-_ALARM_HOTKEY_JS = r"""
-let alarmHotkeyState = window.__driverDrowsinessAlarmHotkey;
-if (!alarmHotkeyState) {
-    alarmHotkeyState = { active: false, trigger: null };
-    window.__driverDrowsinessAlarmHotkey = alarmHotkeyState;
-    window.addEventListener("keydown", (event) => {
-        if (!alarmHotkeyState.active || (event.code !== "Space" && event.key !== " ")) return;
-        const target = event.target;
-        if (target instanceof HTMLElement &&
-            (target.isContentEditable || target.closest("input, textarea, select"))) return;
-        event.preventDefault();
-        alarmHotkeyState.trigger?.("space_pressed", true);
-    });
-}
-
-export default function(component) {
-    alarmHotkeyState.active = Boolean(component.data?.active);
-    alarmHotkeyState.trigger = component.setTriggerValue;
-}
-"""
 _alarm_hotkey = st.components.v2.component(
     "driver_drowsiness_alarm_hotkey",
-    html=_ALARM_HOTKEY_HTML,
-    js=_ALARM_HOTKEY_JS,
+    html='<button type="button">Enable sound</button> <span role="status"></span>',
+    js=(Path(__file__).resolve().parents[1] / "src" / "browser_alarm.js").read_text(encoding="utf-8"),
 )
 
 # Add the project folder to Python's import path so `src.dashboard_state`
@@ -45,7 +26,25 @@ if str(ROOT) not in sys.path:
 
 from src.dashboard_state import demo_eye_inputs, state_for_scenario
 from src.drowsiness_logic import CLOSURE_THRESHOLD_SECONDS, DrowsinessDetector
-from src.real_monitor import RealMonitor
+from src.rtc_config import build_rtc_configuration
+import os
+
+
+def camera_configuration():
+    def secret(name):
+        try:
+            return str(st.secrets.get(name, os.environ.get(name, "")))
+        except FileNotFoundError:
+            return os.environ.get(name, "")
+    key = secret("CLOUDFLARE_TURN_KEY_ID")
+    token = secret("CLOUDFLARE_TURN_KEY_API_TOKEN")
+    cached = st.session_state.get("camera_relay")
+    # Credentials last 24h; refresh for new sessions after 12h.
+    if cached is None or monotonic() - cached[0] > 43200:
+        config = build_rtc_configuration(key, token)
+        st.session_state.camera_relay = (monotonic(), config)
+    return st.session_state.camera_relay[1], bool(key and token)
+
 
 
 class DashboardVideoProcessor(VideoProcessorBase):
@@ -187,7 +186,7 @@ def get_current_dashboard_state():
             driver_status=display_status,
             alarm_status=(
                 "ALARM SILENCED" if monitor.alarm_acknowledged else
-                ("AUDIO ALERT" if monitor.alarm.supported else "VISUAL ALERT")
+                "ALARM ACTIVE"
             ) if monitor.alarm_latched else "OFF",
             eye_closure_duration=monitor.closure_duration,
             camera_status="Waiting for browser camera" if monitor.last_frame is None else "Connected",
@@ -254,11 +253,10 @@ def render_dashboard():
             monitor.acknowledge_alarm()
 
     _alarm_hotkey(
-        data={"active": alarm_active},
+        data={"active": alarm_active, "heartbeat": monotonic()},
         on_space_pressed_change=acknowledge_alarm_from_hotkey,
         key="driver-drowsiness-alarm-hotkey",
-        width=1,
-        height=1,
+        height=45,
     )
 
     # Main row: retain the camera placeholder and existing driver overview.
@@ -266,16 +264,25 @@ def render_dashboard():
     with left:
         if st.session_state.mode == "REAL MODE" and state.monitoring and st.session_state.real_monitor is not None:
             monitor = st.session_state.real_monitor
-            webrtc_streamer(
-                key="real-camera-stream",
-                mode=WebRtcMode.SENDRECV,
-                video_processor_factory=lambda: DashboardVideoProcessor(monitor),
-                media_stream_constraints={
-                    "video": True,
-                    "audio": False,
-                },
-                rtc_configuration={"iceServers": []},
-            )
+            try:
+                rtc_config, relay_enabled = camera_configuration()
+            except (RuntimeError, ValueError) as exc:
+                st.error(str(exc))
+                rtc_config, relay_enabled = None, False
+            if rtc_config is not None:
+                if not relay_enabled:
+                    st.warning("Camera relay is not configured. Remote connections may fail; add TURN secrets for deployment.")
+                st.caption("Camera frames are sent to this app's server for detection. This dashboard does not save video.")
+                webrtc_streamer(
+                    key="real-camera-stream",
+                    mode=WebRtcMode.SENDRECV,
+                    video_processor_factory=lambda: DashboardVideoProcessor(monitor),
+                    media_stream_constraints={
+                        "video": {"width": {"ideal": 640}, "height": {"ideal": 480}, "frameRate": {"ideal": 15, "max": 20}},
+                        "audio": False,
+                    },
+                    rtc_configuration=rtc_config,
+                )
             if st.session_state.real_error:
                 st.warning(st.session_state.real_error)
             elif monitor.last_frame is None:
@@ -291,7 +298,7 @@ def render_dashboard():
             )
         else:
             camera_message = "Demo Mode - Camera Not Connected"
-            camera_detail = "Camera feed will appear here when the OpenCV component is integrated."
+            camera_detail = "Switch to REAL MODE to use your browser camera."
             st.markdown(
                 f'<div class="panel"><div class="panel-title">Live Camera Feed</div><div class="camera"><div class="camera-icon">⌖</div><div class="camera-main">{camera_message}</div><div class="camera-sub">{camera_detail}</div></div></div>',
                 unsafe_allow_html=True,
@@ -349,6 +356,7 @@ def render_dashboard():
                     if st.session_state.mode == "REAL MODE":
                         try:
                             if st.session_state.real_monitor is None:
+                                from src.real_monitor import RealMonitor
                                 st.session_state.real_monitor = RealMonitor()
                             st.session_state.real_error = None
                             st.session_state.monitoring = True
@@ -386,7 +394,7 @@ def render_dashboard():
     if st.session_state.mode == "DEMO MODE":
         st.caption("Demo eye-state inputs are synthetic and for interface preview only.")
     else:
-        st.caption("Real inference runs locally from your webcam. The dashboard visualizes the upstream CNN's eye predictions and the project's continuous-closure logic.")
+        st.caption("Camera frames are processed on the app server. The dashboard shows CNN eye predictions and continuous eye-closure timing.")
 
 
 render_dashboard()
