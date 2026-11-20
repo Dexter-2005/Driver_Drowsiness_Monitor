@@ -3,6 +3,18 @@ export default function(component) {
     const video = root.querySelector('video');
     const button = root.querySelector('button');
     const status = root.querySelector('p');
+    const overlay = root.querySelector('canvas');
+    if (overlay) {
+        const drawing = overlay.getContext('2d');
+        drawing.clearRect(0, 0, 640, 480);
+        drawing.font = '16px sans-serif';
+        drawing.lineWidth = 3;
+        for (const item of component.data?.boxes || []) {
+            drawing.strokeStyle = drawing.fillStyle = item.label === 'OPEN' ? '#55efb2' : '#ff5566';
+            drawing.strokeRect(...item.box);
+            drawing.fillText(item.label, item.box[0], Math.max(18, item.box[1] - 5));
+        }
+    }
     const state = window.__driverCamera ||= {stream: null, sequence: 0, pending: null};
     state.updated = Date.now();
     state.send = component.setStateValue;

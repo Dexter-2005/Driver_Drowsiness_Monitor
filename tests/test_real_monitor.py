@@ -32,6 +32,16 @@ class RealMonitorTests(unittest.TestCase):
         self.assertEqual(self.monitor.driver_status, 'NO_FACE')
         self.assertIsNone(self.monitor.last_error)
 
+    def test_slow_connection_preserves_observed_closure(self):
+        self.monitor.detector.update('CLOSED', 'CLOSED', now=1)
+        self.monitor._last_processed_at = 1
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        crops = [{'crop': frame[:80, :80], 'bbox': (0, 0, 80, 80), 'side': 'Left'}] * 2
+        with patch('src.real_monitor.monotonic', return_value=3), patch.object(self.monitor, '_detect_face', return_value=(0, 0, 100, 100)), patch.object(self.monitor.eye_detector, 'extract_eye_crops', return_value=crops), patch.object(self.monitor, '_predict_eyes', return_value=['CLOSED', 'CLOSED']):
+            self.monitor.process_frame(frame)
+        self.assertEqual(self.monitor.driver_status, 'DROWSY')
+        self.assertTrue(self.monitor.alarm_latched)
+
     def test_camera_gap_does_not_count_as_continuous_closure(self):
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         crops = [{'crop': frame[:80, :80], 'bbox': (0, 0, 80, 80), 'side': 'Left'}] * 2

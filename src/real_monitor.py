@@ -57,6 +57,7 @@ class RealMonitor:
         self.alarm_latched = False
         self.alarm_acknowledged = False
         self._alarm_lock = threading.Lock()
+        self.eye_boxes = []
         self.last_frame: Any = None
         self.left_eye = self.right_eye = "NOT DETECTED"
         self.driver_status = "EYE NOT DETECTED"
@@ -67,9 +68,10 @@ class RealMonitor:
 
     def process_frame(self, frame: Any) -> Any:
         """Annotate one BGR webcam frame and update dashboard-facing state."""
-        if self._last_processed_at is not None and monotonic() - self._last_processed_at > 1.0:
+        if self._last_processed_at is not None and monotonic() - self._last_processed_at > 5.0:
             # A disconnected/stalled stream is not evidence of continuous closure.
             self.detector.reset()
+        self.eye_boxes = []
         try:
             face_box = self._detect_face(frame)
             if face_box is None:
@@ -86,6 +88,7 @@ class RealMonitor:
                     self.driver_status = self.detector.update(*predictions)
                     for item, prediction in zip(crops[:2], predictions):
                         x, y, w, h = item["bbox"]
+                        self.eye_boxes.append({"box": [int(x), int(y), int(w), int(h)], "label": prediction})
                         color = (0, 210, 110) if prediction == "OPEN" else (40, 50, 240)
                         cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
                         cv2.putText(frame, f"{item['side']}: {prediction}", (x, max(18, y - 6)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 1)

@@ -9,7 +9,7 @@ globalThis.document={createElement:()=>({getContext:()=>({drawImage(){}}),toData
 globalThis.setInterval=fn=>{tick=fn;return 1;};
 globalThis.clearInterval=()=>{};
 const video={readyState:2,play:async()=>{}},button={},status={};
-const root={isConnected:true,querySelector:s=>s==='video'?video:s==='button'?button:status};
+const root={isConnected:true,querySelector:s=>s==='video'?video:s==='button'?button:s==='p'?status:null};
 let packet;
 const component={parentElement:root,data:{ack:null},setStateValue:(_,p)=>packet=p};
 let cleanup=render(component);
@@ -19,3 +19,4 @@ cleanup(); component.data.ack=1; cleanup=render(component);
 tick(); assert.equal(packet.id,2); assert.equal(captures,1); assert.equal(released,0);
 await button.onclick(); assert.equal(released,1); assert.equal(packet.stopped,true);
 cleanup(); console.log('Camera persistence, backpressure and stop checks passed');
+
