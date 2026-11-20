@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.real_monitor import RealMonitor
 
-st.set_page_config(page_title='Driver Drowsiness Monitor', page_icon='◉', layout='wide')
+st.set_page_config(page_title='Driver Drowsiness Monitor', page_icon='â—‰', layout='wide')
 st.markdown("""<style>
 .stApp {background:#091321;color:#e8eef8}
 .block-container {max-width:1400px;padding-top:2rem}
@@ -31,7 +31,7 @@ alarm = st.components.v2.component('driver_alarm',
 
 if 'live_monitor' not in st.session_state:
     try:
-        with st.spinner('Loading detection model…'):
+        with st.spinner('Loading detection modelâ€¦'):
             st.session_state.live_monitor = RealMonitor()
     except Exception as error:
         st.error(f'Model could not load: {error}')
@@ -78,10 +78,17 @@ def dashboard():
         active = st.session_state.camera_active
         st.subheader('Driver status')
         st.metric('Status', monitor.driver_status if active else 'CAMERA STOPPED')
-        st.metric('Left eye', monitor.left_eye if active else '—')
-        st.metric('Right eye', monitor.right_eye if active else '—')
+        st.metric('Left eye', monitor.left_eye if active else 'â€”')
+        st.metric('Right eye', monitor.right_eye if active else 'â€”')
         st.metric('Eye closure', f'{monitor.closure_duration if active else 0:.1f} s')
-        st.caption('Drowsiness threshold: 1.5 seconds')
+        st.caption('MediaPipe face landmarks · 1.5-second closure threshold')
+        threshold = st.slider('Eye closure sensitivity', .12, .32, monitor.threshold, .01,
+                              help='Increase if closed eyes remain OPEN. Decrease if open eyes appear CLOSED.')
+        if threshold != monitor.threshold:
+            monitor.threshold = threshold
+            monitor.detector.reset()
+        if all(value is not None for value in monitor.ratios):
+            st.caption(f'Eyelid ratios: {monitor.ratios[0]:.3f} / {monitor.ratios[1]:.3f}')
         if monitor.alarm_latched:
             st.warning('Alarm silenced' if monitor.alarm_acknowledged else 'Drowsiness alarm active')
             if st.button('Silence alarm', key='silence'):
